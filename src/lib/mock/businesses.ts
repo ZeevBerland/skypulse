@@ -1,0 +1,66 @@
+import type { Business } from '@/lib/types/business';
+
+export const demoBusinesses: Business[] = [
+  {
+    id: 'b1a2c3d4-e5f6-7890-abcd-ef1234567890',
+    name: 'Dizengoff Health Pharmacy',
+    business_type: 'pharmacy',
+    address: 'Dizengoff St 50, Tel Aviv-Yafo',
+    lat: 32.0775,
+    lng: 34.7748,
+    timezone: 'Asia/Jerusalem',
+    opening_hours_json: {
+      sunday: { open: '08:00', close: '22:00' },
+      monday: { open: '08:00', close: '22:00' },
+      tuesday: { open: '08:00', close: '22:00' },
+      wednesday: { open: '08:00', close: '22:00' },
+      thursday: { open: '08:00', close: '22:00' },
+      friday: { open: '08:00', close: '15:00' },
+      saturday: null,
+    },
+    created_at: '2025-01-01T00:00:00Z',
+    updated_at: '2025-01-01T00:00:00Z',
+  },
+  {
+    id: 'a2b3c4d5-f6e7-8901-bcde-f12345678901',
+    name: 'Central Station Mini-Market',
+    business_type: 'convenience_store',
+    address: 'Levinsky St 108, Tel Aviv-Yafo',
+    lat: 32.0873,
+    lng: 34.7818,
+    timezone: 'Asia/Jerusalem',
+    opening_hours_json: {
+      sunday: { open: '06:00', close: '23:00' },
+      monday: { open: '06:00', close: '23:00' },
+      tuesday: { open: '06:00', close: '23:00' },
+      wednesday: { open: '06:00', close: '23:00' },
+      thursday: { open: '06:00', close: '23:00' },
+      friday: { open: '06:00', close: '16:00' },
+      saturday: { open: '20:00', close: '23:00' },
+    },
+    created_at: '2025-01-01T00:00:00Z',
+    updated_at: '2025-01-01T00:00:00Z',
+  },
+  {
+    id: 'c3d4e5f6-a7b8-9012-cdef-123456789012',
+    name: 'Bograshov Beach Cafe',
+    business_type: 'cafe',
+    address: 'Bograshov Beach, Tel Aviv-Yafo',
+    lat: 32.0789,
+    lng: 34.7683,
+    timezone: 'Asia/Jerusalem',
+    opening_hours_json: {
+      sunday: { open: '07:00', close: '23:00' },
+      monday: { open: '07:00', close: '23:00' },
+      tuesday: { open: '07:00', close: '23:00' },
+      wednesday: { open: '07:00', close: '23:00' },
+      thursday: { open: '07:00', close: '23:00' },
+      friday: { open: '07:00', close: '16:00' },
+      saturday: { open: '20:00', close: '23:00' },
+    },
+    created_at: '2025-01-01T00:00:00Z',
+    updated_at: '2025-01-01T00:00:00Z',
+  },
+];
+
+export const demoBusinessIds = demoBusinesses.map((b) => b.id);
