@@ -231,12 +231,12 @@ function getTomorrowDate(): string {
 }
 
 function parseWeatherSummary(summary: string): { temp: number; icon: string; description: string; rain: boolean; uv: number } {
-  const tempMatch = summary.match(/(\d+)\s*°?C/);
-  const temp = tempMatch ? parseInt(tempMatch[1]) : 25;
+  const tempMatch = summary.match(/(\d+\.?\d*)\s*°C/);
+  const temp = tempMatch ? Math.round(parseFloat(tempMatch[1])) : 25;
   const rain = /rain|shower|drizzle/i.test(summary);
   const wind = /wind/i.test(summary);
-  const uvMatch = summary.match(/UV\s*[:\s]*(\d+)/i);
-  const uv = uvMatch ? parseInt(uvMatch[1]) : 0;
+  const uvMatch = summary.match(/UV\s*[:\s]*(\d+\.?\d*)/i);
+  const uv = uvMatch ? Math.round(parseFloat(uvMatch[1])) : 0;
 
   let icon = 'cloud';
   if (rain) icon = 'rain';
