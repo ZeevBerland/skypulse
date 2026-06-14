@@ -224,13 +224,12 @@ export async function POST(request: Request) {
 
     return NextResponse.json(responseData);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error('[Weekly Agent]', message);
-    if (error instanceof Error && error.stack) {
-      console.error('[Weekly Agent] Stack:', error.stack);
-    } else {
-      console.error('[Weekly Agent] Raw error:', error);
-    }
+    const message = error instanceof Error
+      ? error.message
+      : (error && typeof error === 'object' && 'message' in error)
+        ? String((error as Record<string, unknown>).message)
+        : JSON.stringify(error);
+    console.error('[Weekly Agent] Error:', message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -234,11 +234,12 @@ export async function POST(request: Request) {
 
     return NextResponse.json(responseData);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Internal server error';
-    console.error('[Day-Ahead Agent]', message);
-    if (error instanceof Error && error.stack) {
-      console.error('[Day-Ahead Agent] Stack:', error.stack);
-    }
+    const message = error instanceof Error
+      ? error.message
+      : (error && typeof error === 'object' && 'message' in error)
+        ? String((error as Record<string, unknown>).message)
+        : JSON.stringify(error);
+    console.error('[Day-Ahead Agent] Error:', message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
