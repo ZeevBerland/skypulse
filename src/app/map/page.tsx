@@ -73,17 +73,24 @@ export default function MapContextPage() {
     setLoading(true);
     setNearbyPlaces([]);
 
-    fetch(`/api/places?business_id=${business.id}`)
-      .then((res) => res.ok ? res.json() : [])
-      .then((data: Place[]) => {
-        if (!cancelled) setNearbyPlaces(data);
-      })
-      .catch(() => {
-        if (!cancelled) setNearbyPlaces([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+    async function fetchPlaces(retries = 2): Promise<Place[]> {
+      for (let i = 0; i <= retries; i++) {
+        try {
+          const res = await fetch(`/api/places?business_id=${business.id}`);
+          if (!res.ok) continue;
+          const data: Place[] = await res.json();
+          if (data.length > 0) return data;
+        } catch { /* retry */ }
+        if (i < retries) await new Promise(r => setTimeout(r, 2000));
+      }
+      return [];
+    }
+
+    fetchPlaces().then((data) => {
+      if (!cancelled) setNearbyPlaces(data);
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
 
     return () => { cancelled = true; };
   }, [business.id]);

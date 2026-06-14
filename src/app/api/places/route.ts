@@ -20,6 +20,7 @@ export async function GET(request: Request) {
       business.lat,
       business.lng,
       business.business_type,
+      business.id,
     );
 
     return NextResponse.json(places);
