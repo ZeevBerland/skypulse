@@ -2,20 +2,22 @@ import { NextResponse } from 'next/server';
 import { getBusinessById, getCompetitorUpdates } from '@/lib/db';
 import { scanCompetitors } from '@/lib/services/competitor-intel';
 
+const NO_CACHE_HEADERS = { 'Cache-Control': 'no-store, max-age=0' };
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const businessId = searchParams.get('business_id');
 
   if (!businessId) {
-    return NextResponse.json({ error: 'business_id is required' }, { status: 400 });
+    return NextResponse.json({ error: 'business_id is required' }, { status: 400, headers: NO_CACHE_HEADERS });
   }
 
   try {
     const updates = await getCompetitorUpdates(businessId, 30);
-    return NextResponse.json(updates);
+    return NextResponse.json(updates, { headers: NO_CACHE_HEADERS });
   } catch (error) {
     console.error('[Competitors GET]', error);
-    return NextResponse.json([]);
+    return NextResponse.json([], { headers: NO_CACHE_HEADERS });
   }
 }
 

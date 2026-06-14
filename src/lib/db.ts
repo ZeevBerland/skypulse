@@ -56,6 +56,14 @@ export async function upsertBusiness(biz: Omit<Business, 'id' | 'created_at' | '
   return data as unknown as Business;
 }
 
+export async function deleteBusiness(id: string): Promise<void> {
+  const { error } = await supabase()
+    .from('businesses')
+    .delete()
+    .eq('id', id);
+  if (error) throw error;
+}
+
 export async function getBusinessCategories(businessId: string): Promise<BusinessCategory[]> {
   const { data, error } = await supabase()
     .from('business_categories')
@@ -208,7 +216,8 @@ function toTimestamptz(date: string, time: string): string {
     const t = time.length === 5 ? `${time}:00` : time;
     return `${date}T${t}Z`;
   }
-  return time;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(time)) return time;
+  return `${date}T00:00:00Z`;
 }
 
 export async function saveEvents(events: Event[]): Promise<void> {

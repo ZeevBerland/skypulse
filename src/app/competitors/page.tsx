@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Binoculars,
   RefreshCw,
@@ -84,11 +84,13 @@ export default function CompetitorsPage() {
   const [scanning, setScanning] = useState(false);
   const [initialLoad, setInitialLoad] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const scannedRef = useRef(false);
 
   const fetchUpdates = useCallback(async () => {
+    if (scannedRef.current) return;
     try {
       const res = await fetch(`/api/competitors?business_id=${business.id}`);
-      if (res.ok) {
+      if (res.ok && !scannedRef.current) {
         const data: CompetitorUpdate[] = await res.json();
         setUpdates(data);
       }
@@ -98,6 +100,7 @@ export default function CompetitorsPage() {
   }, [business.id]);
 
   useEffect(() => {
+    scannedRef.current = false;
     setUpdates([]);
     setInitialLoad(true);
     fetchUpdates().finally(() => setInitialLoad(false));
@@ -107,9 +110,10 @@ export default function CompetitorsPage() {
     setScanning(true);
     setLoading(true);
     setError(null);
+    scannedRef.current = true;
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 120_000);
+      const timeout = setTimeout(() => controller.abort(), 180_000);
       const res = await fetch("/api/competitors", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

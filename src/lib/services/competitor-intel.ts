@@ -6,7 +6,7 @@ import type { Place } from '@/lib/types/places';
 import type { CompetitorUpdate, CompetitorUpdateType } from '@/lib/types/competitors';
 
 const SCAN_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours
-const SCAN_TIMEOUT_MS = 60_000;
+const SCAN_TIMEOUT_MS = 90_000;
 
 interface RawCompetitorUpdate {
   update_type: CompetitorUpdateType;
@@ -105,11 +105,11 @@ export async function scanCompetitors(business: Business): Promise<CompetitorUpd
     }
   }
 
-  let places = await getNearbyPlaces(business.lat, business.lng, business.business_type, business.id);
+  let places = await getNearbyPlaces(business.lat, business.lng, business.business_type, business.id, false, business.name);
 
   if (places.length === 0) {
     console.log('[Competitor Intel] Cache empty, retrying with fresh Gemini call...');
-    places = await getNearbyPlaces(business.lat, business.lng, business.business_type, business.id, true);
+    places = await getNearbyPlaces(business.lat, business.lng, business.business_type, business.id, true, business.name);
   }
 
   console.log(`[Competitor Intel] Found ${places.length} nearby places, types:`, places.map(p => `${p.name} (${p.type} → ${p.category})`));
@@ -127,17 +127,31 @@ export async function scanCompetitors(business: Business): Promise<CompetitorUpd
   const allUpdates: CompetitorUpdate[] = [];
   for (let i = 0; i < results.length; i++) {
     const result = results[i];
-    if (result.status === 'fulfilled') {
+    if (result.status === 'fulfilled' && result.value.length > 0) {
       allUpdates.push(...result.value);
     } else {
-      console.error(`[Competitor Intel] Failed to scan ${competitors[i].name}:`, result.reason);
+      if (result.status === 'rejected') {
+        console.error(`[Competitor Intel] Failed to scan ${competitors[i].name}:`, result.reason);
+      }
+      allUpdates.push({
+        id: crypto.randomUUID(),
+        business_id: business.id,
+        competitor_name: competitors[i].name,
+        competitor_address: competitors[i].address,
+        update_type: 'store_change',
+        title: `Competitor discovered: ${competitors[i].name}`,
+        summary: `${competitors[i].name} is a nearby ${competitors[i].type} located at ${competitors[i].address ?? 'unknown address'}. ${competitors[i].description ?? ''}`.trim(),
+        source_url: undefined,
+        relevance_score: 0.4,
+        ai_suggestion: `Monitor ${competitors[i].name} for pricing changes, promotions, and customer reviews.`,
+        raw_json: { fallback: true, type: competitors[i].type, distance_m: competitors[i].distance_m },
+        discovered_at: new Date().toISOString(),
+      });
     }
   }
 
   if (allUpdates.length > 0) {
-    await saveCompetitorUpdates(allUpdates).catch(err => {
-      console.error('[Competitor Intel] Failed to persist:', err);
-    });
+    await saveCompetitorUpdates(allUpdates).catch(() => {});
   }
 
   return allUpdates.length > 0 ? allUpdates : existing;

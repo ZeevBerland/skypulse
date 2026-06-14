@@ -9,6 +9,7 @@ import {
   Check,
   Loader2,
   Plus,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +32,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { useBusiness } from "@/context/business-context";
+import { demoBusinessIds } from "@/lib/mock/businesses";
 import type { BusinessType, OpeningHours } from "@/lib/types";
 
 const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
@@ -69,6 +71,7 @@ export default function SettingsPage() {
   );
   const [geocoding, setGeocoding] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   const resolveLocation = useCallback(async () => {
     if (!customAddress.trim()) return;
@@ -135,6 +138,25 @@ export default function SettingsPage() {
     }
   }, [customName, customType, customAddress, customLat, customLng, customHours, refreshBusinesses, selectBusiness]);
 
+  const deleteProfile = useCallback(async (id: string) => {
+    if (!confirm("Delete this profile? All associated data will be removed.")) return;
+    setDeleting(id);
+    try {
+      const res = await fetch(`/api/businesses?id=${id}`, { method: "DELETE" });
+      if (res.ok) {
+        await refreshBusinesses();
+        if (selectedId === id && businesses.length > 1) {
+          const remaining = businesses.filter((b) => b.id !== id);
+          if (remaining.length > 0) selectBusiness(remaining[0].id);
+        }
+      }
+    } catch {
+      // delete failed
+    } finally {
+      setDeleting(null);
+    }
+  }, [businesses, selectedId, selectBusiness, refreshBusinesses]);
+
   return (
     <div className="space-y-5">
       <div>
@@ -157,6 +179,7 @@ export default function SettingsPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
             {businesses.map((biz) => {
               const isActive = selectedId === biz.id;
+              const isDemo = demoBusinessIds.includes(biz.id);
               return (
                 <Card
                   key={biz.id}
@@ -169,11 +192,30 @@ export default function SettingsPage() {
                   <CardHeader>
                     <div className="flex items-start justify-between">
                       <CardTitle className="text-sm font-semibold">{biz.name}</CardTitle>
-                      {isActive && (
-                        <div className="flex items-center justify-center size-5 rounded-full bg-[var(--accent)]">
-                          <Check className="size-3 text-white" />
-                        </div>
-                      )}
+                      <div className="flex items-center gap-1.5">
+                        {isActive && (
+                          <div className="flex items-center justify-center size-5 rounded-full bg-[var(--accent)]">
+                            <Check className="size-3 text-white" />
+                          </div>
+                        )}
+                        {!isDemo && (
+                          <button
+                            className="flex items-center justify-center size-5 rounded-full text-muted-foreground hover:text-[var(--destructive)] hover:bg-[var(--destructive)]/10 transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteProfile(biz.id);
+                            }}
+                            disabled={deleting === biz.id}
+                            title="Delete profile"
+                          >
+                            {deleting === biz.id ? (
+                              <Loader2 className="size-3 animate-spin" />
+                            ) : (
+                              <Trash2 className="size-3" />
+                            )}
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <Badge
                       variant="outline"

@@ -165,10 +165,8 @@ Return a JSON object:
 
       const completedRun = completeAgentRun(run, 0, 0, result.summary);
 
-      await Promise.all([
-        saveAgentRun(completedRun),
-        saveRecommendations(updatedRecommendations),
-      ]);
+      await saveAgentRun(completedRun);
+      await saveRecommendations(updatedRecommendations);
 
       for (const change of changes.filter(c => c.severity === 'high' || c.severity === 'critical')) {
         const alert = createAlertFromChange(

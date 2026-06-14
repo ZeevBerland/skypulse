@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getBusinessById, getCompetitorUpdates, saveAgentRun, saveRecommendations, savePlanCache, getPlanCache } from '@/lib/db';
+import { getBusinessById, getCompetitorUpdates, saveAgentRun, saveRecommendations, savePlanCache, getPlanCache, getEventsByBusinessAndDateRange } from '@/lib/db';
 import { discoverEvents, buildEventsContextSummary } from '@/lib/services/event-discovery';
 import { buildCompetitorContextSummary } from '@/lib/services/competitor-intel';
 import { getWeatherForecast } from '@/lib/services/weather';
@@ -61,21 +61,33 @@ interface WeeklyResponse {
   watchlist: string[];
 }
 
+const NO_CACHE_HEADERS = { 'Cache-Control': 'no-store, max-age=0' };
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const businessId = searchParams.get('business_id');
   if (!businessId) {
-    return NextResponse.json({ error: 'business_id is required' }, { status: 400 });
+    return NextResponse.json({ error: 'business_id is required' }, { status: 400, headers: NO_CACHE_HEADERS });
   }
   try {
     const cached = await getPlanCache(businessId, 'weekly');
     if (!cached) {
-      return NextResponse.json(null);
+      return NextResponse.json(null, { headers: NO_CACHE_HEADERS });
     }
-    return NextResponse.json(cached);
+    const plan = cached as Record<string, unknown>;
+    if (!plan.events || (Array.isArray(plan.events) && plan.events.length === 0)) {
+      const today = new Date();
+      const startDate = today.toISOString().split('T')[0];
+      const endDate = new Date(today.getTime() + 7 * 86400000).toISOString().split('T')[0];
+      const dbEvents = await getEventsByBusinessAndDateRange(businessId, startDate, endDate);
+      if (dbEvents.length > 0) {
+        plan.events = dbEvents;
+      }
+    }
+    return NextResponse.json(plan, { headers: NO_CACHE_HEADERS });
   } catch (error) {
     console.error('[Weekly GET]', error);
-    return NextResponse.json(null);
+    return NextResponse.json(null, { headers: NO_CACHE_HEADERS });
   }
 }
 
@@ -97,11 +109,22 @@ export async function POST(request: Request) {
     const startDate = today.toISOString().split('T')[0];
     const endDate = new Date(today.getTime() + 7 * 86400000).toISOString().split('T')[0];
 
-    const [weather, airQuality, events, competitorUpdates] = await Promise.all([
+    const eventsPromise = discoverEvents(business, startDate, endDate).catch((e) => {
+      console.warn('[Weekly Agent] Event discovery failed, continuing without events:', e instanceof Error ? e.message : e);
+      return [] as Awaited<ReturnType<typeof discoverEvents>>;
+    });
+
+    const [weather, airQuality, competitorUpdates] = await Promise.all([
       getWeatherForecast(business.lat, business.lng, 7),
       getAirQuality(business.lat, business.lng),
-      discoverEvents(business, startDate, endDate),
       getCompetitorUpdates(business.id, 15).catch(() => []),
+    ]);
+
+    const events = await Promise.race([
+      eventsPromise,
+      new Promise<Awaited<ReturnType<typeof discoverEvents>>>((resolve) =>
+        setTimeout(() => { console.log('[Weekly Agent] Events not ready in 5s, proceeding without'); resolve([]); }, 5000)
+      ),
     ]);
 
     if (!weather) {
@@ -181,10 +204,8 @@ export async function POST(request: Request) {
       result.weekly_summary,
     );
 
-    await Promise.all([
-      saveAgentRun(completedRun),
-      saveRecommendations(recommendations),
-    ]);
+    await saveAgentRun(completedRun);
+    await saveRecommendations(recommendations);
 
     const responseData = {
       run: completedRun,
@@ -203,8 +224,13 @@ export async function POST(request: Request) {
 
     return NextResponse.json(responseData);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Internal server error';
+    const message = error instanceof Error ? error.message : String(error);
     console.error('[Weekly Agent]', message);
+    if (error instanceof Error && error.stack) {
+      console.error('[Weekly Agent] Stack:', error.stack);
+    } else {
+      console.error('[Weekly Agent] Raw error:', error);
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

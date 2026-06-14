@@ -49,9 +49,12 @@ export function LeafletMap({
 }: LeafletMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
+  const markerLayerRef = useRef<L.LayerGroup | null>(null);
+  const circleRef = useRef<L.Circle | null>(null);
 
   useEffect(() => {
-    if (!mapRef.current || mapInstanceRef.current) return;
+    if (!mapRef.current) return;
+    if (mapInstanceRef.current) return;
 
     const map = L.map(mapRef.current, {
       center,
@@ -66,7 +69,37 @@ export function LeafletMap({
       maxZoom: 19,
     }).addTo(map);
 
-    L.circle(center, {
+    markerLayerRef.current = L.layerGroup().addTo(map);
+    mapInstanceRef.current = map;
+
+    return () => {
+      map.remove();
+      mapInstanceRef.current = null;
+      markerLayerRef.current = null;
+      circleRef.current = null;
+    };
+  // Only re-create the map when center changes (business switch)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [center[0], center[1], zoom]);
+
+  const markersRef = useRef(markers);
+  markersRef.current = markers;
+
+  const centerRef = useRef(center);
+  centerRef.current = center;
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const layer = markerLayerRef.current;
+    if (!map || !layer) return;
+
+    layer.clearLayers();
+
+    if (circleRef.current) {
+      circleRef.current.remove();
+    }
+    const c = centerRef.current;
+    circleRef.current = L.circle(c, {
       radius: radiusMeters,
       color: "#5794f2",
       fillColor: "#5794f2",
@@ -75,10 +108,11 @@ export function LeafletMap({
       dashArray: "5 5",
     }).addTo(map);
 
-    markers.forEach((m, i) => {
+    const currentMarkers = markersRef.current;
+    currentMarkers.forEach((m, i) => {
       const isPrimary = i === 0;
       const icon = createIcon(MARKER_COLORS[m.color] || MARKER_COLORS.blue, isPrimary);
-      const marker = L.marker([m.lat, m.lng], { icon }).addTo(map);
+      const marker = L.marker([m.lat, m.lng], { icon });
       if (m.popup) {
         marker.bindPopup(
           `<div style="background:#181b1f;color:#ccccdc;padding:8px 12px;border-radius:6px;font-size:12px;min-width:140px;">
@@ -93,15 +127,11 @@ export function LeafletMap({
       } else {
         marker.bindTooltip(m.label, { direction: "top", offset: [0, -8] });
       }
+      layer.addLayer(marker);
     });
-
-    mapInstanceRef.current = map;
-
-    return () => {
-      map.remove();
-      mapInstanceRef.current = null;
-    };
-  }, [center, zoom, markers, radiusMeters]);
+  // Use marker count + center coords as stable deps instead of object references
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [center[0], center[1], markers, radiusMeters]);
 
   return <div ref={mapRef} className={className} />;
 }

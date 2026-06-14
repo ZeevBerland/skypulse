@@ -52,7 +52,7 @@ export default function DashboardPage() {
           const json = await res.json();
           const recs: Recommendation[] = json.recommendations ?? [];
           setData({
-            run: null,
+            run: json.run ?? null,
             recommendations: recs,
             weekly_summary: null,
           });

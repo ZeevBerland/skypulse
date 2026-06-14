@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
 import {
   MapPin,
@@ -16,7 +16,9 @@ import {
   Home,
   ShoppingBag,
   Loader2,
+  RefreshCw,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -62,38 +64,53 @@ function placeColor(p: Place): MapMarker["color"] {
   return "green";
 }
 
+const placesCache = new Map<string, Place[]>();
+
 export default function MapContextPage() {
   const { business } = useBusiness();
-  const [nearbyPlaces, setNearbyPlaces] = useState<Place[]>([]);
+  const [nearbyPlaces, setNearbyPlaces] = useState<Place[]>(
+    () => placesCache.get(business.id) ?? [],
+  );
   const [loading, setLoading] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const fetchPlaces = useCallback(async () => {
+    if (!business.id) return;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const hasCached = placesCache.has(business.id);
+    if (!hasCached) setLoading(true);
+
+    try {
+      const res = await fetch(`/api/places?business_id=${business.id}`, {
+        signal: controller.signal,
+      });
+      if (res.ok && !controller.signal.aborted) {
+        const data: Place[] = await res.json();
+        setNearbyPlaces(data);
+        if (data.length > 0) placesCache.set(business.id, data);
+      }
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
+    } finally {
+      if (!controller.signal.aborted) setLoading(false);
+    }
+  }, [business.id]);
 
   useEffect(() => {
-    if (!business.id) return;
-    let cancelled = false;
-    setLoading(true);
-    setNearbyPlaces([]);
+    const cached = placesCache.get(business.id);
+    if (cached) setNearbyPlaces(cached);
+    else setNearbyPlaces([]);
+    fetchPlaces();
+    return () => { abortRef.current?.abort(); };
+  }, [fetchPlaces, business.id]);
 
-    async function fetchPlaces(retries = 2): Promise<Place[]> {
-      for (let i = 0; i <= retries; i++) {
-        try {
-          const res = await fetch(`/api/places?business_id=${business.id}`);
-          if (!res.ok) continue;
-          const data: Place[] = await res.json();
-          if (data.length > 0) return data;
-        } catch { /* retry */ }
-        if (i < retries) await new Promise(r => setTimeout(r, 2000));
-      }
-      return [];
-    }
-
-    fetchPlaces().then((data) => {
-      if (!cancelled) setNearbyPlaces(data);
-    }).finally(() => {
-      if (!cancelled) setLoading(false);
-    });
-
-    return () => { cancelled = true; };
-  }, [business.id]);
+  const center = useMemo(
+    (): [number, number] => [business.lat, business.lng],
+    [business.lat, business.lng],
+  );
 
   const markers: MapMarker[] = useMemo(() => [
     { lat: business.lat, lng: business.lng, label: business.name, color: "blue" as const, popup: `${business.address}<br/>Your business` },
@@ -104,24 +121,30 @@ export default function MapContextPage() {
       color: placeColor(p),
       popup: `${p.description || p.type}<br/>${p.distance_m}m away`,
     })),
-  ], [business, nearbyPlaces]);
+  ], [business.lat, business.lng, business.name, business.address, nearbyPlaces]);
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-2xl font-bold text-white flex items-center gap-2.5">
-          <Navigation className="size-5 text-[var(--accent)]" />
-          Map Context
-        </h2>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Location context and nearby places for {business.name}.
-        </p>
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="text-2xl font-bold text-white flex items-center gap-2.5">
+            <Navigation className="size-5 text-[var(--accent)]" />
+            Map Context
+          </h2>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Location context and nearby places for {business.name}.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={fetchPlaces} disabled={loading}>
+          {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+          Refresh
+        </Button>
       </div>
 
       <Card>
         <CardContent className="p-0 overflow-hidden rounded-lg">
           <LeafletMap
-            center={[business.lat, business.lng]}
+            center={center}
             zoom={15}
             markers={markers}
             radiusMeters={1000}

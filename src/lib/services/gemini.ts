@@ -31,7 +31,7 @@ export async function generateWithMapsGrounding(
       model: MODEL_NAME,
       contents: `${locationContext}\n\n${prompt}`,
       config: {
-        tools: [{ googleMaps: {} }, { googleSearch: {} }],
+        tools: [{ googleMaps: {} }],
       },
     });
     return response.text ?? '';

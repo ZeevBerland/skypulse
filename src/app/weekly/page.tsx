@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   CalendarDays,
   Loader2,
@@ -64,13 +64,15 @@ export default function WeeklyPlanPage() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const generatedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
+    generatedRef.current = false;
     async function loadCached() {
       try {
         const res = await fetch(`/api/agent/weekly?business_id=${businessId}`);
-        if (res.ok && !cancelled) {
+        if (res.ok && !cancelled && !generatedRef.current) {
           const cached = await res.json();
           if (cached) setData(cached);
         }
@@ -86,9 +88,9 @@ export default function WeeklyPlanPage() {
 
   async function generatePlan() {
     setLoading(true);
-    setData(null);
     setSelectedDay(null);
     setError(null);
+    generatedRef.current = true;
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 120_000);
@@ -133,7 +135,7 @@ export default function WeeklyPlanPage() {
         <div className="flex items-center gap-3">
           <Select value={businessId} onValueChange={(v) => v && setBusinessId(v)}>
             <SelectTrigger className="w-[220px]">
-              <SelectValue />
+              <SelectValue placeholder="Select business">{selectedBusiness?.name}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               {businesses.map((b) => (

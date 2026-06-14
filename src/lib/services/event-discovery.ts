@@ -18,12 +18,10 @@ interface RawEvent {
   source_url?: string;
 }
 
-const EVENT_DISCOVERY_TIMEOUT_MS = 30_000;
-
 /**
  * Discover events near a business for a date range.
  * Checks DB cache first; if empty, calls Gemini Search Grounding and persists results.
- * Times out after 30s to avoid blocking agent routes.
+ * No timeout — agent routes handle non-blocking via Promise.race with a short grace window.
  */
 export async function discoverEvents(
   business: Business,
@@ -42,12 +40,7 @@ export async function discoverEvents(
       endDate,
     );
 
-    const rawText = await Promise.race([
-      generateWithSearchGrounding(prompt),
-      new Promise<string>((_, reject) =>
-        setTimeout(() => reject(new Error('Event discovery timed out')), EVENT_DISCOVERY_TIMEOUT_MS)
-      ),
-    ]);
+    const rawText = await generateWithSearchGrounding(prompt);
 
     let rawEvents: RawEvent[] = [];
     try {

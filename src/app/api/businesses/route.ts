@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getBusinesses, upsertBusiness } from '@/lib/db';
+import { getBusinesses, upsertBusiness, deleteBusiness } from '@/lib/db';
+import { demoBusinessIds } from '@/lib/mock/businesses';
 
 export async function GET() {
   try {
@@ -38,6 +39,28 @@ export async function POST(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Internal server error';
     console.error('[Businesses POST]', message);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json({ error: 'id is required' }, { status: 400 });
+    }
+
+    if (demoBusinessIds.includes(id)) {
+      return NextResponse.json({ error: 'Cannot delete demo profiles' }, { status: 403 });
+    }
+
+    await deleteBusiness(id);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    console.error('[Businesses DELETE]', message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

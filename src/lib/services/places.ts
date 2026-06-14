@@ -25,11 +25,36 @@ const DEMAND_ANCHOR_TYPES = [
   'event venue',
 ];
 
+function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 function categorizePlace(placeType: string, businessType: string): PlaceCategory {
   const competitorKeywords = COMPETITOR_TYPES[businessType] ?? [];
   const lower = placeType.toLowerCase();
   const isCompetitor = competitorKeywords.some((kw) => lower.includes(kw));
   return isCompetitor ? 'competitor' : 'demand_anchor';
+}
+
+function filterOwnBusiness(
+  places: Place[],
+  lat: number,
+  lng: number,
+  businessName?: string,
+): Place[] {
+  const nameLower = businessName?.toLowerCase() ?? '';
+  if (!nameLower) return places;
+  return places.filter((p) => {
+    if (p.name.toLowerCase().includes(nameLower)) return false;
+    if (nameLower.includes(p.name.toLowerCase())) return false;
+    const dist = p.distance_m ?? distanceMeters(lat, lng, p.lat, p.lng);
+    if (dist < 30) return false;
+    return true;
+  });
 }
 
 export async function getNearbyPlaces(
@@ -38,12 +63,16 @@ export async function getNearbyPlaces(
   businessType: string,
   businessId?: string,
   skipCache = false,
+  businessName?: string,
 ): Promise<Place[]> {
   const cacheKey = `places:${lat.toFixed(4)},${lng.toFixed(4)}:${businessType}`;
 
   if (!skipCache) {
     const memCached = cache.get<Place[]>(cacheKey);
-    if (memCached) return memCached;
+    if (memCached) {
+      console.log(`[Places] Memory cache hit: ${memCached.length} places`);
+      return filterOwnBusiness(memCached, lat, lng, businessName);
+    }
 
     if (businessId) {
       try {
@@ -54,30 +83,27 @@ export async function getNearbyPlaces(
             category: categorizePlace(p.type, businessType),
           }));
           cache.set(cacheKey, recategorized, CACHE_TTL_MS);
-          return recategorized;
+          console.log(`[Places] DB cache hit: ${recategorized.length} places`);
+          return filterOwnBusiness(recategorized, lat, lng, businessName);
         }
       } catch { /* fall through to Gemini */ }
     }
   }
 
-  try {
+  const fetchFromGemini = async (): Promise<Place[]> => {
     const competitorTypes = COMPETITOR_TYPES[businessType]?.join(', ') ?? businessType;
     const demandTypes = DEMAND_ANCHOR_TYPES.join(', ');
 
-    const prompt = `List all notable places within 1km of this location. Include:
-1. Competitors: ${competitorTypes}
-2. Demand anchors: ${demandTypes}
+    const excludeClause = businessName ? `\nIMPORTANT: Do NOT include "${businessName}" — that is my own business.` : '';
+    const prompt = `Find nearby businesses and points of interest within 1 kilometer of this location.
 
-For each place, provide a JSON array with objects having these exact fields:
-- "name": string (business/place name)
-- "address": string (street address)
-- "lat": number (latitude)
-- "lng": number (longitude)  
-- "type": string (e.g. "pharmacy", "bus station", "cafe")
-- "distance_m": number (estimated distance in meters from the center point)
-- "description": string (one-line description)
+I need to know about these types of places:
+- Competitors such as: ${competitorTypes}
+- Demand anchors such as: ${demandTypes}
+${excludeClause}
+Please search for real places nearby and tell me what you find. For each place, include the name, address, approximate latitude and longitude, what type of place it is, the estimated distance in meters, and a brief one-line description.
 
-Return ONLY the JSON array, no other text.`;
+Format your response as a JSON array where each object has these fields: "name", "address", "lat", "lng", "type", "distance_m", "description".`;
 
     const raw = await generateWithMapsGrounding(prompt, lat, lng);
     console.log(`[Places] Gemini raw response length: ${raw.length}, first 300 chars:`, raw.slice(0, 300));
@@ -98,7 +124,7 @@ Return ONLY the JSON array, no other text.`;
       description?: string;
     }> = JSON.parse(jsonMatch[0]);
 
-    const places: Place[] = parsed.map((p) => ({
+    return parsed.map((p) => ({
       name: p.name,
       address: p.address,
       lat: p.lat,
@@ -108,16 +134,40 @@ Return ONLY the JSON array, no other text.`;
       distance_m: p.distance_m,
       description: p.description,
     }));
+  };
 
-    cache.set(cacheKey, places, CACHE_TTL_MS);
+  try {
+    let places = await fetchFromGemini();
+    console.log(`[Places] Gemini attempt 1: ${places.length} raw places`);
 
-    if (businessId && places.length > 0) {
-      savePlanCache(businessId, 'places', places).catch(() => {});
+    if (places.length === 0) {
+      console.log('[Places] Empty result, retrying once...');
+      places = await fetchFromGemini();
+      console.log(`[Places] Gemini attempt 2: ${places.length} raw places`);
     }
 
+    places = filterOwnBusiness(places, lat, lng, businessName);
+
+    if (places.length > 0) {
+      cache.set(cacheKey, places, CACHE_TTL_MS);
+      if (businessId) {
+        savePlanCache(businessId, 'places', places).catch(() => {});
+      }
+    }
+
+    console.log(`[Places] Returning ${places.length} places for ${businessType} at ${lat.toFixed(4)},${lng.toFixed(4)}`);
     return places;
   } catch (error) {
     console.error('[Places] Gemini discovery failed:', error instanceof Error ? error.message : error);
+    if (businessId) {
+      try {
+        const dbFallback = await getPlanCache(businessId, 'places');
+        if (dbFallback && Array.isArray(dbFallback) && dbFallback.length > 0) {
+          console.log(`[Places] Using DB fallback after Gemini failure: ${(dbFallback as Place[]).length} places`);
+          return filterOwnBusiness(dbFallback as Place[], lat, lng, businessName);
+        }
+      } catch { /* no fallback */ }
+    }
     return [];
   }
 }

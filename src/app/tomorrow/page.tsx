@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   Cloud,
   CloudRain,
@@ -134,18 +134,20 @@ function SkeletonTimeline() {
 }
 
 export default function TomorrowPlanPage() {
-  const { businessId, setBusinessId, businesses } = useBusiness();
+  const { businessId, setBusinessId, business: selectedBusiness, businesses } = useBusiness();
   const [planData, setPlanData] = useState<DayPlanResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const generatedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
+    generatedRef.current = false;
     async function loadCached() {
       try {
         const res = await fetch(`/api/agent/day-ahead?business_id=${businessId}`);
-        if (res.ok && !cancelled) {
+        if (res.ok && !cancelled && !generatedRef.current) {
           const cached = await res.json();
           if (cached) setPlanData(cached);
         }
@@ -162,17 +164,29 @@ export default function TomorrowPlanPage() {
   const generatePlan = useCallback(async () => {
     setLoading(true);
     setError(null);
+    generatedRef.current = true;
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120_000);
       const res = await fetch("/api/agent/day-ahead", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ business_id: businessId, date: tomorrowDate() }),
+        signal: controller.signal,
       });
-      if (!res.ok) throw new Error(`Failed to generate plan (${res.status})`);
+      clearTimeout(timeout);
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || `Failed to generate plan (${res.status})`);
+      }
       const data: DayPlanResponse = await res.json();
       setPlanData(data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      if (e instanceof DOMException && e.name === "AbortError") {
+        setError("Request timed out — plan generation took too long. Please try again.");
+      } else {
+        setError(e instanceof Error ? e.message : "Unknown error");
+      }
     } finally {
       setLoading(false);
     }
@@ -193,7 +207,7 @@ export default function TomorrowPlanPage() {
         <div className="flex items-center gap-3">
           <Select value={businessId} onValueChange={(v) => v && setBusinessId(v)}>
             <SelectTrigger className="w-[240px]">
-              <SelectValue />
+              <SelectValue placeholder="Select business">{selectedBusiness?.name}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               {businesses.map((b) => (

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getBusinessById, getCompetitorUpdates, saveAgentRun, saveRecommendations, savePlanCache, getPlanCache, getRecommendationsByDate } from '@/lib/db';
+import { getBusinessById, getCompetitorUpdates, saveAgentRun, saveRecommendations, savePlanCache, getPlanCache, getRecommendationsByDate, getEventsByBusinessAndDateRange } from '@/lib/db';
 import { discoverEvents, buildEventsContextSummary } from '@/lib/services/event-discovery';
 import { buildCompetitorContextSummary } from '@/lib/services/competitor-intel';
 import { getWeatherForecast } from '@/lib/services/weather';
@@ -62,21 +62,31 @@ interface DayAheadResponse {
   daily_summary: string;
 }
 
+const NO_CACHE_HEADERS = { 'Cache-Control': 'no-store, max-age=0' };
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const businessId = searchParams.get('business_id');
   if (!businessId) {
-    return NextResponse.json({ error: 'business_id is required' }, { status: 400 });
+    return NextResponse.json({ error: 'business_id is required' }, { status: 400, headers: NO_CACHE_HEADERS });
   }
   try {
     const cached = await getPlanCache(businessId, 'day_ahead');
     if (!cached) {
-      return NextResponse.json(null);
+      return NextResponse.json(null, { headers: NO_CACHE_HEADERS });
     }
-    return NextResponse.json(cached);
+    const plan = cached as Record<string, unknown>;
+    if (!plan.events || (Array.isArray(plan.events) && plan.events.length === 0)) {
+      const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+      const dbEvents = await getEventsByBusinessAndDateRange(businessId, tomorrow, tomorrow);
+      if (dbEvents.length > 0) {
+        plan.events = dbEvents;
+      }
+    }
+    return NextResponse.json(plan, { headers: NO_CACHE_HEADERS });
   } catch (error) {
     console.error('[Day-Ahead GET]', error);
-    return NextResponse.json(null);
+    return NextResponse.json(null, { headers: NO_CACHE_HEADERS });
   }
 }
 
@@ -96,11 +106,22 @@ export async function POST(request: Request) {
 
     const targetDate = date || getTomorrowDate();
 
-    const [weather, airQuality, events, competitorUpdates] = await Promise.all([
+    const eventsPromise = discoverEvents(business, targetDate, targetDate).catch((e) => {
+      console.warn('[Day-Ahead Agent] Event discovery failed, continuing without events:', e instanceof Error ? e.message : e);
+      return [] as Awaited<ReturnType<typeof discoverEvents>>;
+    });
+
+    const [weather, airQuality, competitorUpdates] = await Promise.all([
       getWeatherForecast(business.lat, business.lng, 7),
       getAirQuality(business.lat, business.lng),
-      discoverEvents(business, targetDate, targetDate),
       getCompetitorUpdates(business.id, 10).catch(() => []),
+    ]);
+
+    const events = await Promise.race([
+      eventsPromise,
+      new Promise<Awaited<ReturnType<typeof discoverEvents>>>((resolve) =>
+        setTimeout(() => { console.log('[Day-Ahead Agent] Events not ready in 5s, proceeding without'); resolve([]); }, 5000)
+      ),
     ]);
 
     if (!weather) {
@@ -193,10 +214,8 @@ export async function POST(request: Request) {
       result.daily_summary,
     );
 
-    await Promise.all([
-      saveAgentRun(completedRun),
-      saveRecommendations(recommendations),
-    ]);
+    await saveAgentRun(completedRun);
+    await saveRecommendations(recommendations);
 
     const responseData = {
       run: completedRun,
