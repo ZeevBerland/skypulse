@@ -105,10 +105,20 @@ export async function scanCompetitors(business: Business): Promise<CompetitorUpd
     }
   }
 
-  const places = await getNearbyPlaces(business.lat, business.lng, business.business_type);
+  let places = await getNearbyPlaces(business.lat, business.lng, business.business_type, business.id);
+
+  if (places.length === 0) {
+    console.log('[Competitor Intel] Cache empty, retrying with fresh Gemini call...');
+    places = await getNearbyPlaces(business.lat, business.lng, business.business_type, business.id, true);
+  }
+
+  console.log(`[Competitor Intel] Found ${places.length} nearby places, types:`, places.map(p => `${p.name} (${p.type} → ${p.category})`));
   const competitors = places.filter(p => p.category === 'competitor').slice(0, 5);
 
-  if (competitors.length === 0) return existing;
+  if (competitors.length === 0) {
+    console.log('[Competitor Intel] No competitors identified among nearby places');
+    return existing;
+  }
 
   const results = await Promise.allSettled(
     competitors.map(c => scanSingleCompetitor(c, business))

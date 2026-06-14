@@ -6,9 +6,9 @@ import type { Place, PlaceCategory } from '@/lib/types/places';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 const COMPETITOR_TYPES: Record<string, string[]> = {
-  pharmacy: ['pharmacy', 'drugstore', 'parapharmacy'],
-  convenience_store: ['convenience store', 'mini-market', 'supermarket', 'grocery'],
-  cafe: ['cafe', 'coffee shop', 'bakery', 'restaurant'],
+  pharmacy: ['pharmacy', 'drugstore', 'parapharmacy', 'drug store', 'chemist'],
+  convenience_store: ['convenience', 'mini-market', 'minimarket', 'supermarket', 'grocery', 'kiosk', 'bodega', 'corner store', 'market'],
+  cafe: ['cafe', 'café', 'coffee', 'bakery', 'restaurant', 'bistro', 'bar', 'juice', 'tea house', 'food'],
 };
 
 const DEMAND_ANCHOR_TYPES = [
@@ -37,20 +37,27 @@ export async function getNearbyPlaces(
   lng: number,
   businessType: string,
   businessId?: string,
+  skipCache = false,
 ): Promise<Place[]> {
   const cacheKey = `places:${lat.toFixed(4)},${lng.toFixed(4)}:${businessType}`;
 
-  const memCached = cache.get<Place[]>(cacheKey);
-  if (memCached) return memCached;
+  if (!skipCache) {
+    const memCached = cache.get<Place[]>(cacheKey);
+    if (memCached) return memCached;
 
-  if (businessId) {
-    try {
-      const dbCached = await getPlanCache(businessId, 'places');
-      if (dbCached && Array.isArray(dbCached) && dbCached.length > 0) {
-        cache.set(cacheKey, dbCached as Place[], CACHE_TTL_MS);
-        return dbCached as Place[];
-      }
-    } catch { /* fall through to Gemini */ }
+    if (businessId) {
+      try {
+        const dbCached = await getPlanCache(businessId, 'places');
+        if (dbCached && Array.isArray(dbCached) && dbCached.length > 0) {
+          const recategorized = (dbCached as Place[]).map(p => ({
+            ...p,
+            category: categorizePlace(p.type, businessType),
+          }));
+          cache.set(cacheKey, recategorized, CACHE_TTL_MS);
+          return recategorized;
+        }
+      } catch { /* fall through to Gemini */ }
+    }
   }
 
   try {
@@ -73,9 +80,13 @@ For each place, provide a JSON array with objects having these exact fields:
 Return ONLY the JSON array, no other text.`;
 
     const raw = await generateWithMapsGrounding(prompt, lat, lng);
+    console.log(`[Places] Gemini raw response length: ${raw.length}, first 300 chars:`, raw.slice(0, 300));
 
     const jsonMatch = raw.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) return [];
+    if (!jsonMatch) {
+      console.warn('[Places] No JSON array found in Gemini response');
+      return [];
+    }
 
     const parsed: Array<{
       name: string;

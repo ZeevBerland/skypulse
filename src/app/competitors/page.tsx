@@ -17,6 +17,7 @@ import {
   Lightbulb,
   Clock,
   TrendingUp,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -82,6 +83,7 @@ export default function CompetitorsPage() {
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [initialLoad, setInitialLoad] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchUpdates = useCallback(async () => {
     try {
@@ -104,18 +106,30 @@ export default function CompetitorsPage() {
   const runScan = useCallback(async () => {
     setScanning(true);
     setLoading(true);
+    setError(null);
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120_000);
       const res = await fetch("/api/competitors", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ business_id: business.id }),
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
       if (res.ok) {
         const data: CompetitorUpdate[] = await res.json();
         setUpdates(data);
+      } else {
+        const body = await res.json().catch(() => null);
+        setError(body?.error || `Server error (${res.status})`);
       }
-    } catch {
-      // silent
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setError("Scan timed out — competitor analysis took too long. Please try again.");
+      } else {
+        setError("Network error — could not reach the server.");
+      }
     } finally {
       setScanning(false);
       setLoading(false);
@@ -164,7 +178,20 @@ export default function CompetitorsPage() {
           </Card>
         )}
 
-        {!initialLoad && updates.length === 0 && (
+        {error && !scanning && (
+          <Card className="border-[var(--destructive)]/30 mb-4">
+            <CardContent className="flex flex-col items-center justify-center py-10 text-center">
+              <AlertTriangle className="size-8 text-[var(--destructive)] mb-3" />
+              <h3 className="text-base font-semibold text-white mb-1">Scan Failed</h3>
+              <p className="text-sm text-muted-foreground max-w-md mb-4">{error}</p>
+              <Button variant="outline" onClick={runScan}>
+                Try Again
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {!initialLoad && updates.length === 0 && !error && (
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-16 text-center">
               <Binoculars className="size-10 text-muted-foreground/30 mb-4" />

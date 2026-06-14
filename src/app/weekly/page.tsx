@@ -63,6 +63,7 @@ export default function WeeklyPlanPage() {
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,18 +88,30 @@ export default function WeeklyPlanPage() {
     setLoading(true);
     setData(null);
     setSelectedDay(null);
+    setError(null);
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120_000);
       const res = await fetch("/api/agent/weekly", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ business_id: businessId }),
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
       if (res.ok) {
         const result = await res.json();
         setData(result);
+      } else {
+        const body = await res.json().catch(() => null);
+        setError(body?.error || `Server error (${res.status})`);
       }
-    } catch {
-      // Handle error silently
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setError("Request timed out. The plan generation took too long — please try again.");
+      } else {
+        setError("Network error — could not reach the server.");
+      }
     } finally {
       setLoading(false);
     }
@@ -157,8 +170,22 @@ export default function WeeklyPlanPage() {
         </Card>
       )}
 
+      {/* Error State */}
+      {error && !loading && (
+        <Card className="border-[var(--destructive)]/30">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+            <AlertTriangle className="size-8 text-[var(--destructive)] mb-3" />
+            <h3 className="text-base font-semibold text-white mb-1">Generation Failed</h3>
+            <p className="text-sm text-muted-foreground max-w-md mb-4">{error}</p>
+            <Button variant="outline" onClick={generatePlan}>
+              Try Again
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Empty State */}
-      {!loading && !initialLoading && !data && (
+      {!loading && !initialLoading && !data && !error && (
         <Card className="border-[var(--border)] border-dashed">
           <CardContent className="flex flex-col items-center justify-center py-20 text-center">
             <div className="rounded-full bg-[var(--primary)]/10 p-4 mb-4">
